@@ -115,12 +115,12 @@ def run_ingestion(retry_failed: bool = False) -> int:
                     if is_queued:
                         queued_count += 1
                         tag = "[+] New" if action_type == "new" else "[🔄 Modified]"
-                        logger.info(f"  {tag}: {clean_path.name}")
+                        logger.info(f"   ├── {tag}: {clean_path.name}")
 
     if queued_count > 0:
-        logger.info(f"✅ Ingested {queued_count} new/updated file(s) out of {total_scanned} scanned.")
+        logger.info(f"   └── ✅ Queued {queued_count} new/updated file(s) (Scanned: {total_scanned}).")
     else:
-        logger.debug(f"Scan complete: {total_scanned} files inspected, 0 new.")
+        logger.info(f"   └── ✨ No new audio files found (Scanned: {total_scanned}).")
     
     return queued_count
 
