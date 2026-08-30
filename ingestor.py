@@ -76,11 +76,12 @@ def register_file(
         row = cursor.fetchone()
 
         # Skip unchanged files unless retry_failed is requested for failed notes
-        if row is not None:
-            if row["file_mtime"] == mtime and not (
-                retry_failed and row["status"] == "FAILED"
-            ):
-                return False, "unchanged"
+        if (
+            row is not None
+            and row["file_mtime"] == mtime
+            and not (retry_failed and row["status"] == "FAILED")
+        ):
+            return False, "unchanged"
 
         f_hash = compute_hash(file_path)
 
@@ -104,8 +105,8 @@ def register_file(
         action_type = "new" if is_new else "modified"
         return True, action_type
 
-    except Exception as e:
-        logger.error(f"❌ Error registering '{file_path.name}': {e}", exc_info=True)
+    except Exception:
+        logger.exception(f"❌ Error registering '{file_path.name}'")
         return False, "error"
 
 
