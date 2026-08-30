@@ -8,8 +8,8 @@ __pycache__/
 *.db-wal
 *.db-shm
 
-# ChromaDB data directory
-chroma_db/
+# db
+db/
 
 # Environment & local configurations
 .env
