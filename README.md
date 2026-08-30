@@ -1,4 +1,4 @@
-# 🎙️ Whisper-Watcher
+# 🎙️ LLM Journal 
 
 An automated pipeline for ingesting raw voice notes (e.g. from iCloud Drive), transcribing them locally using GPU-accelerated `whisper.cpp`, performing semantic context retrieval (RAG) on an existing Obsidian vault via ChromaDB & Ollama (`nomic-embed-text`), and generating structured Obsidian Markdown notes with `gemma4`.
 
