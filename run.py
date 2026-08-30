@@ -1,7 +1,13 @@
-import sys
-import logging
 import argparse
-from db_utils import init_db, reset_failed_records, reset_all_for_reprocessing, list_records
+import logging
+import sys
+
+from db_utils import (
+    init_db,
+    list_records,
+    reset_all_for_reprocessing,
+    reset_failed_records,
+)
 
 # Ensure standard streams handle UTF-8 properly on Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -11,7 +17,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 try:
     from ingestor import run_ingestion
-    from processor import run_one_shot, reprocess_notes
+    from processor import reprocess_notes, run_one_shot
     from rag_utils import sync_vault_index_incremental
 except ImportError as e:
     print(f"[x FATAL] Failed to import pipeline modules: {e}")
@@ -25,70 +31,71 @@ def parse_args():
     parser.add_argument(
         "--list",
         action="store_true",
-        help="List all audio files and their database SQLite IDs and statuses."
+        help="List all audio files and their database SQLite IDs and statuses.",
     )
     parser.add_argument(
         "--search",
         type=str,
         metavar="QUERY",
-        help="Search for notes and find their SQLite ID by keyword or filename."
+        help="Search for notes and find their SQLite ID by keyword or filename.",
     )
     parser.add_argument(
         "--reprocess",
         action="store_true",
-        help="Re-synthesize all existing notes with latest RAG context & LLM prompts using stored transcripts."
+        help="Re-synthesize all existing notes with latest RAG context & LLM prompts using stored transcripts.",
     )
     parser.add_argument(
         "--reprocess-id",
         type=int,
         metavar="ID",
-        help="Re-synthesize a specific note record by its database ID."
+        help="Re-synthesize a specific note record by its database ID.",
     )
     parser.add_argument(
         "--retranscribe-all",
         action="store_true",
-        help="Hard reset: force re-running Whisper audio transcription from scratch on all files."
+        help="Hard reset: force re-running Whisper audio transcription from scratch on all files.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Simulate processing/reprocessing without writing notes to the Obsidian vault."
+        help="Simulate processing/reprocessing without writing notes to the Obsidian vault.",
     )
     parser.add_argument(
         "--retry-failed",
         action="store_true",
-        help="Reset and retry audio files that previously failed processing."
+        help="Reset and retry audio files that previously failed processing.",
     )
     parser.add_argument(
         "--ingest-only",
         action="store_true",
-        help="Only run file discovery and database queuing."
+        help="Only run file discovery and database queuing.",
     )
     parser.add_argument(
         "--process-only",
         action="store_true",
-        help="Only run transcription, RAG, and LLM processing on queued files."
+        help="Only run transcription, RAG, and LLM processing on queued files.",
     )
     parser.add_argument(
         "--sync-vault",
         action="store_true",
-        help="Only synchronize the Obsidian vault vector index."
+        help="Only synchronize the Obsidian vault vector index.",
     )
     parser.add_argument(
         "--query-vault-detailed",
         type=str,
         metavar="QUERY",
-        help="Search for notes and find their index by keyword or filename."
+        help="Search for notes and find their index by keyword or filename.",
     )
     parser.add_argument(
         "--vector-index-stats",
         action="store_true",
-        help="Shows the stats for Obsidian vault vector index."
+        help="Shows the stats for Obsidian vault vector index.",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
-        help="Enable debug level logging output."
+        help="Enable debug level logging output.",
     )
     return parser.parse_args()
 
@@ -104,7 +111,11 @@ def display_records(query=None):
     print("-" * 105)
     for r in records:
         audio_name = r["file_path"].replace("\\", "/").split("/")[-1]
-        note_name = r["obsidian_path"].replace("\\", "/").split("/")[-1] if r["obsidian_path"] else "-"
+        note_name = (
+            r["obsidian_path"].replace("\\", "/").split("/")[-1]
+            if r["obsidian_path"]
+            else "-"
+        )
         if len(note_name) > 40:
             note_name = note_name[:37] + "..."
         if len(audio_name) > 37:
@@ -127,7 +138,7 @@ def main():
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)]
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
 
     init_db()
@@ -137,7 +148,9 @@ def main():
         count = reset_all_for_reprocessing(retranscribe=True)
         logging.info(f"🔄 Reset {count} records for full audio re-transcription.")
         notes_created = run_one_shot()
-        logging.info(f"🎉 Completed re-transcription and synthesis for {notes_created} notes.")
+        logging.info(
+            f"🎉 Completed re-transcription and synthesis for {notes_created} notes."
+        )
         sys.exit(0)
 
     # Mode 2: Reprocess existing notes using cached transcripts
@@ -184,7 +197,9 @@ def main():
     if (new_queued or 0) == 0 and (notes_created or 0) == 0:
         logging.info("   └── ✨ No pending audio files to process. Pipeline idle.")
     else:
-        logging.info(f"🎉 Pipeline Complete. Queued: {new_queued or 0} | Processed: {notes_created or 0}\n")
+        logging.info(
+            f"🎉 Pipeline Complete. Queued: {new_queued or 0} | Processed: {notes_created or 0}\n"
+        )
 
     sys.exit(0)
 

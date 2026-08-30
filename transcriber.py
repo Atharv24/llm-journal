@@ -1,7 +1,8 @@
 import logging
 import subprocess
 from pathlib import Path
-from config import WHISPER_EXE, WHISPER_MODEL, WHISPER_LANG
+
+from config import WHISPER_EXE, WHISPER_LANG, WHISPER_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,14 @@ def transcribe_audio(audio_path: Path) -> str:
 
     if result.returncode != 0:
         err_msg = result.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"Whisper CLI failed (exit code {result.returncode}): {err_msg}")
+        raise RuntimeError(
+            f"Whisper CLI failed (exit code {result.returncode}): {err_msg}"
+        )
 
     transcript = result.stdout.decode("utf-8", errors="replace").strip()
     if not transcript:
-        raise ValueError("Whisper completed successfully but returned an empty transcript.")
+        raise ValueError(
+            "Whisper completed successfully but returned an empty transcript."
+        )
 
     return transcript

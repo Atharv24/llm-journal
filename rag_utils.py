@@ -1,19 +1,20 @@
-import os
 import logging
-from typing import Optional
-import requests
-import chromadb
+import os
 from pathlib import Path
-from db_utils import get_db
+
+import chromadb
+import requests
+
 from config import (
+    CHROMA_COLLECTION_NAME,
     CHROMA_PATH,
+    EMBED_MODEL,
     OBSIDIAN_VAULT,
     OLLAMA_EMBED_URL,
-    EMBED_MODEL,
-    RAG_TOP_K,
     RAG_MAX_DISTANCE,
-    CHROMA_COLLECTION_NAME
+    RAG_TOP_K,
 )
+from db_utils import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,7 @@ logger = logging.getLogger(__name__)
 CHROMA_PATH.mkdir(parents=True, exist_ok=True)
 chroma_client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 collection = chroma_client.get_or_create_collection(
-    name=CHROMA_COLLECTION_NAME,
-    metadata={"hnsw:space": "cosine"}
+    name=CHROMA_COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
 )
 
 
@@ -39,7 +39,9 @@ def get_embedding(text: str, is_query: bool = False) -> list[float]:
         if res.status_code == 200:
             return res.json().get("embedding", [])
         else:
-            logger.warning(f"Embedding request returned status {res.status_code}: {res.text}")
+            logger.warning(
+                f"Embedding request returned status {res.status_code}: {res.text}"
+            )
             return []
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
@@ -52,7 +54,7 @@ def cleanup_stale_embeddings():
         cursor = conn.cursor()
         cursor.execute("SELECT file_path FROM vault_index")
         rows = cursor.fetchall()
-        
+
         stale_paths = []
         stale_ids = []
         for row in rows:
@@ -71,8 +73,13 @@ def cleanup_stale_embeddings():
             except Exception as e:
                 logger.warning(f"Failed deleting stale ChromaDB IDs: {e}")
 
-            cursor.executemany("DELETE FROM vault_index WHERE file_path = ?", [(p,) for p in stale_paths])
-            logger.info(f"   │  🧹 [Vector RAG] Cleaned up {len(stale_ids)} stale document embedding(s).")
+            cursor.executemany(
+                "DELETE FROM vault_index WHERE file_path = ?",
+                [(p,) for p in stale_paths],
+            )
+            logger.info(
+                f"   │  🧹 [Vector RAG] Cleaned up {len(stale_ids)} stale document embedding(s)."
+            )
 
 
 def sync_vault_index_incremental():
@@ -89,7 +96,9 @@ def sync_vault_index_incremental():
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT file_path, last_mtime FROM vault_index")
-        indexed_files = {row["file_path"]: row["last_mtime"] for row in cursor.fetchall()}
+        indexed_files = {
+            row["file_path"]: row["last_mtime"] for row in cursor.fetchall()
+        }
 
         for md_path in OBSIDIAN_VAULT.glob("**/*.md"):
             path_str = str(md_path)
@@ -117,23 +126,28 @@ def sync_vault_index_incremental():
                     ids=[rel_id],
                     embeddings=[embedding],
                     documents=[content[:1500]],
-                    metadatas=[{"title": md_path.stem, "path": path_str}]
+                    metadatas=[{"title": md_path.stem, "path": path_str}],
                 )
 
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO vault_index (file_path, last_mtime, indexed_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(file_path) DO UPDATE SET
                         last_mtime = excluded.last_mtime,
                         indexed_at = CURRENT_TIMESTAMP
-                """, (path_str, current_mtime))
+                """,
+                    (path_str, current_mtime),
+                )
 
                 updated_count += 1
             except Exception as e:
                 logger.error(f"Failed indexing '{md_path.name}': {e}")
 
     if updated_count > 0:
-        logger.info(f"   │  🧠 [Vector RAG] Indexed/updated {updated_count} vault document(s).")
+        logger.info(
+            f"   │  🧠 [Vector RAG] Indexed/updated {updated_count} vault document(s)."
+        )
 
 
 def add_note_to_vector_db(md_path: Path):
@@ -153,18 +167,21 @@ def add_note_to_vector_db(md_path: Path):
             ids=[rel_id],
             embeddings=[embedding],
             documents=[content[:1500]],
-            metadatas=[{"title": md_path.stem, "path": str(md_path)}]
+            metadatas=[{"title": md_path.stem, "path": str(md_path)}],
         )
 
         mtime = os.path.getmtime(md_path)
         with get_db() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO vault_index (file_path, last_mtime, indexed_at)
                 VALUES (?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(file_path) DO UPDATE SET
                     last_mtime = excluded.last_mtime,
                     indexed_at = CURRENT_TIMESTAMP
-            """, (str(md_path), mtime))
+            """,
+                (str(md_path), mtime),
+            )
 
     except Exception as e:
         logger.error(f"Failed to index generated note '{md_path.name}': {e}")
@@ -194,7 +211,7 @@ def retrieve_relevant_context(
     raw_transcript: str,
     top_k: int = RAG_TOP_K,
     max_distance: float = RAG_MAX_DISTANCE,
-    exclude_paths: Optional[list[str]] = None
+    exclude_paths: list[str] | None = None,
 ) -> str:
     """Retrieves top matching vault notes from ChromaDB filtered by distance threshold and excluding self-references."""
     if collection.count() == 0:
@@ -209,7 +226,7 @@ def retrieve_relevant_context(
     results = collection.query(
         query_embeddings=[query_vector],
         n_results=min(fetch_k, collection.count()),
-        include=["documents", "metadatas", "distances"]
+        include=["documents", "metadatas", "distances"],
     )
 
     norm_excludes = [p.lower().replace("\\", "/") for p in (exclude_paths or [])]
@@ -218,7 +235,11 @@ def retrieve_relevant_context(
     if results and "documents" in results and results["documents"]:
         documents = results["documents"][0]
         metadatas = results["metadatas"][0]
-        distances = results.get("distances", [[]])[0] if "distances" in results and results["distances"] else [0.0] * len(documents)
+        distances = (
+            results.get("distances", [[]])[0]
+            if results.get("distances")
+            else [0.0] * len(documents)
+        )
 
         for doc, meta, dist in zip(documents, metadatas, distances):
             meta_path = meta.get("path", "").lower().replace("\\", "/")
@@ -230,11 +251,15 @@ def retrieve_relevant_context(
 
             if dist <= max_distance:
                 title = meta.get("title", "Note")
-                context_snippets.append(f"--- Vault Context Note: [[{title}]] (Relevance Distance: {dist:.2f}) ---\n{doc}\n")
+                context_snippets.append(
+                    f"--- Vault Context Note: [[{title}]] (Relevance Distance: {dist:.2f}) ---\n{doc}\n"
+                )
                 if len(context_snippets) >= top_k:
                     break
             else:
-                logger.debug(f"Filtered out note [[{meta.get('title')}]] due to distance {dist:.3f} > {max_distance}")
+                logger.debug(
+                    f"Filtered out note [[{meta.get('title')}]] due to distance {dist:.3f} > {max_distance}"
+                )
 
     return "\n".join(context_snippets)
 
@@ -251,25 +276,31 @@ def query_vault_detailed(query_text: str, top_k: int = 5) -> list[dict]:
     results = collection.query(
         query_embeddings=[query_vector],
         n_results=min(top_k, collection.count()),
-        include=["documents", "metadatas", "distances"]
+        include=["documents", "metadatas", "distances"],
     )
 
     items = []
     if results and "documents" in results and results["documents"]:
         documents = results["documents"][0]
         metadatas = results["metadatas"][0]
-        distances = results.get("distances", [[]])[0] if "distances" in results and results["distances"] else [0.0] * len(documents)
+        distances = (
+            results.get("distances", [[]])[0]
+            if results.get("distances")
+            else [0.0] * len(documents)
+        )
         ids = results.get("ids", [[]])[0]
 
         for doc_id, doc, meta, dist in zip(ids, documents, metadatas, distances):
-            items.append({
-                "id": doc_id,
-                "title": meta.get("title", "Unknown"),
-                "path": meta.get("path", ""),
-                "distance": float(dist),
-                "similarity": max(0.0, 1.0 - float(dist)),
-                "snippet": doc
-            })
+            items.append(
+                {
+                    "id": doc_id,
+                    "title": meta.get("title", "Unknown"),
+                    "path": meta.get("path", ""),
+                    "distance": float(dist),
+                    "similarity": max(0.0, 1.0 - float(dist)),
+                    "snippet": doc,
+                }
+            )
     return items
 
 
@@ -281,6 +312,5 @@ def get_chroma_stats() -> dict:
         "collection_name": collection.name,
         "count": count,
         "metadata": collection.metadata,
-        "sample_ids": sample.get("ids", []) if sample else []
+        "sample_ids": sample.get("ids", []) if sample else [],
     }
-

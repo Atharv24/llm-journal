@@ -1,32 +1,35 @@
 import json
 import logging
-import yaml
-from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
 
-from db_utils import get_db, get_records_for_reprocessing
-from rag_utils import (
-    sync_vault_index_incremental,
-    retrieve_relevant_context,
-    add_note_to_vector_db,
-    remove_note_from_vector_db
-)
-from transcriber import transcribe_audio
-from llm_parser import process_transcript_with_llm, normalize_wiki_links, normalize_tags
+import yaml
+
 from config import (
+    DATE_FORMAT,
+    NOTE_NAME_FORMAT,
     OBSIDIAN_VAULT,
     OLLAMA_MODEL,
-    NOTE_NAME_FORMAT,
-    DATE_FORMAT,
-    TIME_FORMAT
+    TIME_FORMAT,
 )
+from db_utils import get_db, get_records_for_reprocessing
+from llm_parser import normalize_tags, normalize_wiki_links, process_transcript_with_llm
+from rag_utils import (
+    add_note_to_vector_db,
+    remove_note_from_vector_db,
+    retrieve_relevant_context,
+    sync_vault_index_incremental,
+)
+from transcriber import transcribe_audio
 
 logger = logging.getLogger(__name__)
 
-def get_unique_note_path(target_dir: Path, base_name: str, current_path: Optional[Path] = None) -> Path:
+
+def get_unique_note_path(
+    target_dir: Path, base_name: str, current_path: Path | None = None
+) -> Path:
     """
-    Generates a non-conflicting markdown filepath. 
+    Generates a non-conflicting markdown filepath.
     If current_path is provided, it ALWAYS returns current_path to preserve existing file links in Obsidian.
     """
     # 1. Lock to current path if updating an existing note
@@ -39,7 +42,7 @@ def get_unique_note_path(target_dir: Path, base_name: str, current_path: Optiona
     while candidate.exists():
         candidate = target_dir / f"{base_name} ({counter}).md"
         counter += 1
-        
+
     return candidate
 
 
@@ -48,8 +51,8 @@ def generate_note_file(
     file_mtime: float,
     transcript: str,
     llm_data: dict,
-    existing_obsidian_path: Optional[Path] = None,
-    dry_run: bool = False
+    existing_obsidian_path: Path | None = None,
+    dry_run: bool = False,
 ) -> Path:
     """Formats markdown and saves/updates the note in Obsidian vault."""
     category = llm_data.get("category", "Thoughts")
@@ -59,7 +62,9 @@ def generate_note_file(
 
     # Determine recording timestamp from audio file mtime
     try:
-        rec_time = datetime.fromtimestamp(file_mtime if file_mtime else file_path.stat().st_mtime)
+        rec_time = datetime.fromtimestamp(
+            file_mtime if file_mtime else file_path.stat().st_mtime
+        )
     except Exception:
         rec_time = datetime.now()
 
@@ -68,23 +73,21 @@ def generate_note_file(
     time_display = rec_time.strftime("%H:%M")
 
     raw_title = llm_data.get("title", "Voice Note").strip()
-    safe_title = "".join(c for c in raw_title if c.isalnum() or c in (" ", "_", "-")).strip() or "Voice Note"
+    safe_title = (
+        "".join(c for c in raw_title if c.isalnum() or c in (" ", "_", "-")).strip()
+        or "Voice Note"
+    )
 
     # Construct formatted file name
     base_name = NOTE_NAME_FORMAT.format(
-        date=date_str,
-        time=time_str,
-        category=category,
-        title=safe_title
+        date=date_str, time=time_str, category=category, title=safe_title
     )
-    out_path = get_unique_note_path(target_dir, base_name, current_path=existing_obsidian_path)
+    out_path = get_unique_note_path(
+        target_dir, base_name, current_path=existing_obsidian_path
+    )
 
     # Filter out self-referencing links
-    exclude_stems = {
-        raw_title.lower(),
-        safe_title.lower(),
-        out_path.stem.lower()
-    }
+    exclude_stems = {raw_title.lower(), safe_title.lower(), out_path.stem.lower()}
     if existing_obsidian_path:
         exclude_stems.add(existing_obsidian_path.stem.lower())
 
@@ -92,17 +95,17 @@ def generate_note_file(
     for link in normalize_wiki_links(llm_data.get("wiki_links", [])):
         inner = link.strip("[]").strip().lower()
         # Ensure the note does not link to itself (current or previous filename/title)
-        if not any(exc == inner or exc in inner or inner in exc for exc in exclude_stems):
+        if not any(
+            exc == inner or exc in inner or inner in exc for exc in exclude_stems
+        ):
             formatted_links.append(link)
 
     links_fmt = " ".join(formatted_links) if formatted_links else "None."
 
     # Prepare rich frontmatter with Aliases for instant Obsidian Quick Switcher search
-    aliases = list(dict.fromkeys([
-        raw_title,
-        f"{safe_title}",
-        f"{date_str} {safe_title}"
-    ]))
+    aliases = list(
+        dict.fromkeys([raw_title, f"{safe_title}", f"{date_str} {safe_title}"])
+    )
 
     frontmatter_dict = {
         "type": "voice-note",
@@ -112,11 +115,16 @@ def generate_note_file(
         "summary": llm_data.get("summary", ""),
         "aliases": aliases,
         "related": formatted_links if formatted_links else [],
-        "tags": normalize_tags(["voice-note", category] + llm_data.get("tags", []))
+        "tags": normalize_tags(["voice-note", category] + llm_data.get("tags", [])),
     }
-    frontmatter_yaml = yaml.safe_dump(frontmatter_dict, sort_keys=False, allow_unicode=True).strip()
+    frontmatter_yaml = yaml.safe_dump(
+        frontmatter_dict, sort_keys=False, allow_unicode=True
+    ).strip()
 
-    tasks_fmt = "\n".join([f"- [ ] {task}" for task in llm_data.get("action_items", [])]) or "None extracted."
+    tasks_fmt = (
+        "\n".join([f"- [ ] {task}" for task in llm_data.get("action_items", [])])
+        or "None extracted."
+    )
 
     md_content = f"""---
 {frontmatter_yaml}
@@ -125,7 +133,7 @@ def generate_note_file(
 > **Recorded:** `{date_str} {time_display}`
 
 ## 📋 Summary
-{llm_data.get('summary', '')}
+{llm_data.get("summary", "")}
 
 ## 📋 Action Items
 {tasks_fmt}
@@ -134,20 +142,28 @@ def generate_note_file(
 {transcript}
 """
     if dry_run:
-        logger.info(f"   └── 📝 [DRY-RUN Preview]:")
+        logger.info("   └── 📝 [DRY-RUN Preview]:")
         logger.info(f"       • Note:     {out_path.name}")
         logger.info(f"       • Category: {category}")
         logger.info(f"       • Related:  {links_fmt}")
         return out_path
 
     # If the file path changed (e.g. category or title was updated), delete the old file and its vector embedding
-    if existing_obsidian_path and existing_obsidian_path.exists() and existing_obsidian_path != out_path:
+    if (
+        existing_obsidian_path
+        and existing_obsidian_path.exists()
+        and existing_obsidian_path != out_path
+    ):
         try:
             remove_note_from_vector_db(existing_obsidian_path)
             existing_obsidian_path.unlink()
-            logger.info(f"   │  [Renamed]: Removed previous file '{existing_obsidian_path.name}'")
+            logger.info(
+                f"   │  [Renamed]: Removed previous file '{existing_obsidian_path.name}'"
+            )
         except OSError as e:
-            logger.warning(f"Could not delete old note file '{existing_obsidian_path}': {e}")
+            logger.warning(
+                f"Could not delete old note file '{existing_obsidian_path}': {e}"
+            )
 
     out_path.write_text(md_content, encoding="utf-8")
     add_note_to_vector_db(out_path)
@@ -181,7 +197,9 @@ def run_one_shot() -> int:
             file_mtime = row["file_mtime"]
             status = row["status"]
             transcript = row["transcription"]
-            existing_obsidian_path = Path(row["obsidian_path"]) if row["obsidian_path"] else None
+            existing_obsidian_path = (
+                Path(row["obsidian_path"]) if row["obsidian_path"] else None
+            )
 
         item_counter += 1
         logger.info(f"   ├── 🎙️  [Item #{item_counter}] {file_path.name}")
@@ -191,18 +209,29 @@ def run_one_shot() -> int:
             if status == "PENDING":
                 transcript = transcribe_audio(file_path)
                 with get_db() as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE voice_notes 
                         SET status = 'TRANSCRIBED', transcription = ? 
                         WHERE id = ?
-                    """, (transcript, record_id))
+                    """,
+                        (transcript, record_id),
+                    )
                 status = "TRANSCRIBED"
 
             # Stage 2: RAG Retrieval + LLM Generation + Vault Write
             if status == "TRANSCRIBED":
-                logger.info(f"   │  🧠 Querying RAG context & calling {OLLAMA_MODEL}...")
-                exclude_list = [str(existing_obsidian_path), str(file_path)] if existing_obsidian_path else [str(file_path)]
-                rag_context = retrieve_relevant_context(transcript, exclude_paths=exclude_list)
+                logger.info(
+                    f"   │  🧠 Querying RAG context & calling {OLLAMA_MODEL}..."
+                )
+                exclude_list = (
+                    [str(existing_obsidian_path), str(file_path)]
+                    if existing_obsidian_path
+                    else [str(file_path)]
+                )
+                rag_context = retrieve_relevant_context(
+                    transcript, exclude_paths=exclude_list
+                )
                 llm_data = process_transcript_with_llm(transcript, rag_context)
 
                 out_path = generate_note_file(
@@ -210,35 +239,46 @@ def run_one_shot() -> int:
                     file_mtime=file_mtime,
                     transcript=transcript,
                     llm_data=llm_data,
-                    existing_obsidian_path=existing_obsidian_path
+                    existing_obsidian_path=existing_obsidian_path,
                 )
 
                 with get_db() as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE voice_notes 
                         SET status = 'COMPLETED', 
                             summary_json = ?, 
                             obsidian_path = ?, 
                             processed_at = CURRENT_TIMESTAMP 
                         WHERE id = ?
-                    """, (json.dumps(llm_data), str(out_path), record_id))
+                    """,
+                        (json.dumps(llm_data), str(out_path), record_id),
+                    )
 
-                logger.info(f"   └── ✔ [Saved]: {out_path.name} ({llm_data.get('category', 'Thoughts')})")
+                logger.info(
+                    f"   └── ✔ [Saved]: {out_path.name} ({llm_data.get('category', 'Thoughts')})"
+                )
                 processed_count += 1
 
         except Exception as e:
-            logger.error(f"   └── ❌ Processing failed for record #{record_id}: {e}", exc_info=True)
+            logger.error(
+                f"   └── ❌ Processing failed for record #{record_id}: {e}",
+                exc_info=True,
+            )
             with get_db() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE voice_notes 
                     SET status = 'FAILED', error_log = ? 
                     WHERE id = ?
-                """, (str(e), record_id))
+                """,
+                    (str(e), record_id),
+                )
 
     return processed_count
 
 
-def reprocess_notes(record_id: Optional[int] = None, dry_run: bool = False) -> int:
+def reprocess_notes(record_id: int | None = None, dry_run: bool = False) -> int:
     """Re-synthesizes notes using their cached transcripts with latest LLM prompts & RAG context."""
     sync_vault_index_incremental()
 
@@ -248,7 +288,9 @@ def reprocess_notes(record_id: Optional[int] = None, dry_run: bool = False) -> i
         return 0
 
     mode_str = "[DRY-RUN] " if dry_run else ""
-    logger.info(f"🔄 {mode_str}Reprocessing {len(records)} note(s) with latest RAG context & LLM prompt...")
+    logger.info(
+        f"🔄 {mode_str}Reprocessing {len(records)} note(s) with latest RAG context & LLM prompt..."
+    )
 
     reprocessed_count = 0
 
@@ -257,16 +299,24 @@ def reprocess_notes(record_id: Optional[int] = None, dry_run: bool = False) -> i
         file_path = Path(row["file_path"])
         file_mtime = row["file_mtime"]
         transcript = row["transcription"]
-        existing_obsidian_path = Path(row["obsidian_path"]) if row["obsidian_path"] else None
+        existing_obsidian_path = (
+            Path(row["obsidian_path"]) if row["obsidian_path"] else None
+        )
 
         logger.info(f"   ├── [Note {idx}/{len(records)} - #{rec_id}] {file_path.name}")
 
         try:
             logger.info(f"   │  🧠 Querying RAG context & calling {OLLAMA_MODEL}...")
-            exclude_list = [str(existing_obsidian_path), str(file_path)] if existing_obsidian_path else [str(file_path)]
+            exclude_list = (
+                [str(existing_obsidian_path), str(file_path)]
+                if existing_obsidian_path
+                else [str(file_path)]
+            )
             if existing_obsidian_path:
                 exclude_list.append(existing_obsidian_path.stem)
-            rag_context = retrieve_relevant_context(transcript, exclude_paths=exclude_list)
+            rag_context = retrieve_relevant_context(
+                transcript, exclude_paths=exclude_list
+            )
             llm_data = process_transcript_with_llm(transcript, rag_context)
 
             out_path = generate_note_file(
@@ -275,24 +325,31 @@ def reprocess_notes(record_id: Optional[int] = None, dry_run: bool = False) -> i
                 transcript=transcript,
                 llm_data=llm_data,
                 existing_obsidian_path=existing_obsidian_path,
-                dry_run=dry_run
+                dry_run=dry_run,
             )
 
             if not dry_run:
                 with get_db() as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE voice_notes 
                         SET status = 'COMPLETED', 
                             summary_json = ?, 
                             obsidian_path = ?, 
                             processed_at = CURRENT_TIMESTAMP 
                         WHERE id = ?
-                    """, (json.dumps(llm_data), str(out_path), rec_id))
+                    """,
+                        (json.dumps(llm_data), str(out_path), rec_id),
+                    )
 
-                logger.info(f"   └── ✔ [Updated]: {out_path.name} ({llm_data.get('category', 'Thoughts')})")
+                logger.info(
+                    f"   └── ✔ [Updated]: {out_path.name} ({llm_data.get('category', 'Thoughts')})"
+                )
             reprocessed_count += 1
 
         except Exception as e:
-            logger.error(f"   └── ❌ Failed reprocessing record #{rec_id}: {e}", exc_info=True)
+            logger.error(
+                f"   └── ❌ Failed reprocessing record #{rec_id}: {e}", exc_info=True
+            )
 
     return reprocessed_count

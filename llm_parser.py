@@ -1,8 +1,10 @@
-import re
 import json
 import logging
+import re
+
 import requests
-from config import OLLAMA_URL, OLLAMA_MODEL, LLM_TIMEOUT
+
+from config import LLM_TIMEOUT, OLLAMA_MODEL, OLLAMA_URL
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +22,19 @@ def normalize_tags(raw_tags: list) -> list[str]:
         # Remove leading hashtags if present
         tag_str = tag_str.lstrip("#")
         # Replace spaces, underscores, slashes, and periods with a hyphen
-        tag_str = re.sub(r'[\s_/\\]+', '-', tag_str)
+        tag_str = re.sub(r"[\s_/\\]+", "-", tag_str)
         # Remove any characters that aren't alphanumeric or hyphen
-        tag_str = re.sub(r'[^a-zA-Z0-9-]', '', tag_str)
+        tag_str = re.sub(r"[^a-zA-Z0-9-]", "", tag_str)
         # Collapse consecutive hyphens
-        tag_str = re.sub(r'-+', '-', tag_str)
+        tag_str = re.sub(r"-+", "-", tag_str)
         # Lowercase and strip outer hyphens
-        clean_tag = tag_str.lower().strip('-')
+        clean_tag = tag_str.lower().strip("-")
 
         if clean_tag and clean_tag not in formatted:
             formatted.append(clean_tag)
 
     return formatted
+
 
 def normalize_wiki_links(raw_links: list) -> list[str]:
     """Cleans and standardizes wiki links into '[[Note Title]]' format without duplicates."""
@@ -79,15 +82,21 @@ Return ONLY a raw JSON object matching this schema:
 }}
 """
     try:
-        res = requests.post(OLLAMA_URL, json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "format": "json"
-        }, timeout=LLM_TIMEOUT)
+        res = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+            },
+            timeout=LLM_TIMEOUT,
+        )
 
         if res.status_code != 200:
-            logger.error(f"Ollama request failed with status {res.status_code}: {res.text}")
+            logger.error(
+                f"Ollama request failed with status {res.status_code}: {res.text}"
+            )
             raise RuntimeError(f"Ollama error {res.status_code}: {res.text}")
 
         response_json = res.json()
@@ -109,5 +118,5 @@ Return ONLY a raw JSON object matching this schema:
             "category": "Thoughts",
             "tags": ["unprocessed"],
             "wiki_links": [],
-            "action_items": []
+            "action_items": [],
         }
