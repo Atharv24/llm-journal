@@ -2,3 +2,5 @@
   - Do we need to keep title and file name same?
 - Build query pipeline with vector db, and run related notes through LLM and query prompt
   - Remember queries as notes of their own (sibling of voice notes?) and update memory based on that
+- Fix errors
+- Add formatter/linter
