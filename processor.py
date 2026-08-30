@@ -24,17 +24,22 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-
 def get_unique_note_path(target_dir: Path, base_name: str, current_path: Optional[Path] = None) -> Path:
-    """Generates a non-conflicting markdown filepath. Reuses current_path if name matches."""
-    candidate = target_dir / f"{base_name}.md"
-    if current_path and candidate == current_path:
-        return candidate
+    """
+    Generates a non-conflicting markdown filepath. 
+    If current_path is provided, it ALWAYS returns current_path to preserve existing file links in Obsidian.
+    """
+    # 1. Lock to current path if updating an existing note
+    if current_path is not None:
+        return current_path
 
+    # 2. For NEW notes: handle potential name collisions on disk
+    candidate = target_dir / f"{base_name}.md"
     counter = 1
-    while candidate.exists() and candidate != current_path:
+    while candidate.exists():
         candidate = target_dir / f"{base_name} ({counter}).md"
         counter += 1
+        
     return candidate
 
 
@@ -72,7 +77,7 @@ def generate_note_file(
         category=category,
         title=safe_title
     )
-    out_path = existing_obsidian_path # get_unique_note_path(target_dir, base_name, current_path=existing_obsidian_path)
+    out_path = get_unique_note_path(target_dir, base_name, current_path=existing_obsidian_path)
 
     # Filter out self-referencing links
     exclude_stems = {
@@ -117,10 +122,10 @@ def generate_note_file(
 {frontmatter_yaml}
 ---
 # 🎙️ {raw_title}
+> **Recorded:** `{date_str} {time_display}`
 
-> **Summary:** {llm_data.get('summary', '')}
-> **Category:** [[{category}]] | **Recorded:** `{date_str} {time_display}`
-> **Related:** {links_fmt}
+## 📋 Summary
+{llm_data.get('summary', '')}
 
 ## 📋 Action Items
 {tasks_fmt}
